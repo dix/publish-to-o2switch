@@ -151,6 +151,7 @@ runs:
       shell: bash
       env:
         O2SWITCH_HOST: ${{ inputs.o2switch_host }}
+        O2SWITCH_USERNAME: ${{ inputs.o2switch_username }}
         SSH_USER: ${{ inputs.ssh_user || inputs.o2switch_username }}
         SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
         SSH_PORT: ${{ inputs.ssh_port }}
@@ -174,6 +175,23 @@ runs:
         chmod 600 "$key_file"
 
         ssh_opts=("-p" "${SSH_PORT}" "-i" "${key_file}" "-o" "StrictHostKeyChecking=no" "-o" "UserKnownHostsFile=/dev/null")
+
+        normalize_remote_path() {
+          local input_path="$1"
+          if [ -z "$input_path" ]; then
+            echo ""
+            return
+          fi
+          if [ "${input_path#/}" != "$input_path" ]; then
+            echo "$input_path"
+            return
+          fi
+          if [ "${input_path#~}" != "$input_path" ]; then
+            echo "/home/${O2SWITCH_USERNAME}${input_path#~}"
+            return
+          fi
+          echo "/home/${O2SWITCH_USERNAME}/${input_path}"
+        }
 
         exclude_args=()
         tar_excludes=()
@@ -215,13 +233,15 @@ runs:
           fi
           release_id="${GITHUB_SHA:-manual}"
           ts=$(date +%s%3N)
-          remote_dir="${RELEASES_DIR}/${release_id}_${ts}"
-          echo "Creating remote release directory: ${remote_dir}"
-          if [ "${remote_dir#~}" != "$remote_dir" ]; then
-            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p ${remote_dir}"
-          else
-            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${remote_dir}'"
+          releases_base="$RELEASES_DIR"
+          if [ -z "$releases_base" ]; then
+            echo "releases_dir is required when use_releases=true" >&2
+            exit 1
           fi
+          resolved_base=$(normalize_remote_path "$releases_base")
+          remote_dir="${resolved_base}/${release_id}_${ts}"
+          echo "Creating remote release directory: ${remote_dir}"
+          ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${remote_dir}'"
 
           if [ "$USE_ARCHIVE" = "true" ]; then
             archive_file=$(mktemp -u)
@@ -242,29 +262,40 @@ runs:
             rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${source_path}" "${SSH_USER}@${O2SWITCH_HOST}:${remote_dir}"
           fi
 
-          echo "Updating current symlink: ${CURRENT_LINK} -> ${remote_dir}"
-          ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "ln -sfn '${remote_dir}' '${CURRENT_LINK}'"
+          current_link="$CURRENT_LINK"
+          if [ -z "$current_link" ]; then
+            echo "current_link is required when use_releases=true" >&2
+            exit 1
+          fi
+          resolved_link=$(normalize_remote_path "$current_link")
+          echo "Updating current symlink: ${resolved_link} -> ${remote_dir}"
+          ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "ln -sfn '${remote_dir}' '${resolved_link}'"
           echo "Removing old releases (keep ${keep_releases})"
-          ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "cd '${RELEASES_DIR}' && ls -dt */ | tail -n +$((keep_releases + 1)) | xargs -r rm -rf --"
+          ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "cd '${resolved_base}' && ls -dt */ | tail -n +$((keep_releases + 1)) | xargs -r rm -rf --"
         else
+          resolved_remote_path=$(normalize_remote_path "$REMOTE_PATH")
+          if [ -z "$resolved_remote_path" ]; then
+            echo "remote_path is required when use_releases=false" >&2
+            exit 1
+          fi
           if [ "$USE_ARCHIVE" = "true" ]; then
             archive_file=$(mktemp -u)
             archive_name="release_${GITHUB_SHA:-manual}_$(date +%s%3N).tar.gz"
             archive_file="${archive_file}_${archive_name}"
             echo "Creating archive: ${archive_file}"
             tar -czf "$archive_file" "${tar_excludes[@]}" -C "$source_path" .
-            echo "Uploading archive to ${REMOTE_PATH}"
-            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${REMOTE_PATH}'"
-            scp "${ssh_opts[@]}" "$archive_file" "${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}/"
+            echo "Uploading archive to ${resolved_remote_path}"
+            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${resolved_remote_path}'"
+            scp "${ssh_opts[@]}" "$archive_file" "${SSH_USER}@${O2SWITCH_HOST}:${resolved_remote_path}/"
             echo "Extracting archive on remote"
-            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "tar -xzf '${REMOTE_PATH}/${archive_name}' -C '${REMOTE_PATH}'"
+            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "tar -xzf '${resolved_remote_path}/${archive_name}' -C '${resolved_remote_path}'"
             echo "Removing archive on remote"
-            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "rm -f '${REMOTE_PATH}/${archive_name}'"
+            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "rm -f '${resolved_remote_path}/${archive_name}'"
             rm -f "$archive_file"
           else
             export RSYNC_RSH="ssh ${ssh_opts[*]}"
-            echo "Running rsync from ${source_path} to ${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
-            rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${source_path}" "${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
+            echo "Running rsync from ${source_path} to ${SSH_USER}@${O2SWITCH_HOST}:${resolved_remote_path}"
+            rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${source_path}" "${SSH_USER}@${O2SWITCH_HOST}:${resolved_remote_path}"
           fi
         fi
         echo "Deploy completed"
