@@ -15,8 +15,9 @@ inputs:
     description: "O2Switch cPanel API token"
     required: true
   ssh_user:
-    description: "SSH user for rsync"
-    required: true
+    description: "SSH user for rsync (defaults to o2switch_username)"
+    required: false
+    default: ""
   ssh_private_key:
     description: "SSH private key used for rsync"
     required: true
@@ -65,7 +66,7 @@ runs:
       env:
         O2SWITCH_HOST: ${{ inputs.o2switch_host }}
         O2SWITCH_USERNAME: ${{ inputs.o2switch_username }}
-        SSH_USER: ${{ inputs.ssh_user }}
+        SSH_USER: ${{ inputs.ssh_user || inputs.o2switch_username }}
         SSH_PORT: ${{ inputs.ssh_port }}
         LOCAL_PATH: ${{ inputs.local_path }}
         REMOTE_PATH: ${{ inputs.remote_path }}
@@ -111,7 +112,7 @@ runs:
       shell: bash
       env:
         O2SWITCH_HOST: ${{ inputs.o2switch_host }}
-        SSH_USER: ${{ inputs.ssh_user }}
+        SSH_USER: ${{ inputs.ssh_user || inputs.o2switch_username }}
         SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
         SSH_PORT: ${{ inputs.ssh_port }}
         LOCAL_PATH: ${{ inputs.local_path }}
@@ -146,8 +147,12 @@ runs:
         fi
 
         export RSYNC_RSH="ssh -p ${SSH_PORT} -i ${key_file} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
-        echo "Running rsync from ${LOCAL_PATH} to ${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
-        rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${LOCAL_PATH}" "${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
+        source_path="$LOCAL_PATH"
+        if [ "${source_path%/}" = "$source_path" ]; then
+          source_path="${source_path}/"
+        fi
+        echo "Running rsync from ${source_path} to ${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
+        rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${source_path}" "${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
         echo "Rsync completed"
 
     - name: Cleanup whitelist
