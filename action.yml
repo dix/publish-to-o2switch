@@ -74,15 +74,15 @@ runs:
       shell: bash
       run: |
         set -euo pipefail
-        echo "==== Get runner public IP (start) ===="
+        echo "🚀 ==== Get runner public IP (start) ===="
         ip=$(curl -s checkip.amazonaws.com)
         if [ -z "$ip" ]; then
           echo "Failed to fetch public IP" >&2
           exit 1
         fi
-        echo "Public IP: ${ip}"
+        echo "📡 Public IP: ${ip}"
         echo "public_ip=$ip" >> "$GITHUB_OUTPUT"
-        echo "==== Get runner public IP (end) ===="
+        echo "✅ ==== Get runner public IP (end) ===="
 
     - name: Display plan
       shell: bash
@@ -103,8 +103,8 @@ runs:
         PUBLIC_IP: ${{ steps.public_ip.outputs.public_ip }}
       run: |
         set -euo pipefail
-        echo "==== Display plan (start) ===="
-        echo "Plan:"
+        echo "🧭 ==== Display plan (start) ===="
+        echo "📋 Plan:"
         echo "- public_ip: ${PUBLIC_IP}"
         echo "- o2switch_host: ${O2SWITCH_HOST}"
         echo "- o2switch_username: ${O2SWITCH_USERNAME}"
@@ -125,7 +125,7 @@ runs:
           echo "- current_link: ${CURRENT_LINK}"
           echo "- keep_releases: ${KEEP_RELEASES}"
         fi
-        echo "==== Display plan (end) ===="
+        echo "✅ ==== Display plan (end) ===="
 
     - name: Whitelist IP
       shell: bash
@@ -136,16 +136,16 @@ runs:
         PUBLIC_IP: ${{ steps.public_ip.outputs.public_ip }}
       run: |
         set -euo pipefail
-        echo "==== Whitelist IP (start) ===="
+        echo "🔐 ==== Whitelist IP (start) ===="
 
         auth_header="Authorization: cpanel ${O2SWITCH_USERNAME}:${O2SWITCH_API_TOKEN}"
         base_url="https://${O2SWITCH_HOST}:2083/execute/SshWhitelist"
 
-        echo "Whitelist endpoint: ${base_url}"
-        echo "Whitelisting ${PUBLIC_IP}"
+        echo "🔗 Whitelist endpoint: ${base_url}"
+        echo "➕ Whitelisting ${PUBLIC_IP}"
         curl -sS -f -H "$auth_header" "${base_url}/add?address=${PUBLIC_IP}&port=22" >/dev/null
-        echo "Whitelist add request succeeded"
-        echo "==== Whitelist IP (end) ===="
+        echo "✅ Whitelist add request succeeded"
+        echo "✅ ==== Whitelist IP (end) ===="
 
     - name: Rsync deploy
       shell: bash
@@ -166,9 +166,9 @@ runs:
         KEEP_RELEASES: ${{ inputs.keep_releases }}
       run: |
         set -euo pipefail
-        echo "==== Rsync deploy (start) ===="
+        echo "📦 ==== Deploy (start) ===="
 
-        echo "Preparing SSH key and rsync"
+        echo "🔑 Preparing SSH key and deploy"
 
         key_file=$(mktemp)
         printf "%s\n" "$SSH_PRIVATE_KEY" > "$key_file"
@@ -224,9 +224,9 @@ runs:
         fi
 
         if [ ${#exclude_args[@]} -gt 0 ]; then
-          echo "Rsync excludes: ${exclude_args[*]}"
+          echo "🧹 Rsync excludes: ${exclude_args[*]}"
         else
-          echo "Rsync excludes: (none)"
+          echo "🧹 Rsync excludes: (none)"
         fi
 
         source_path="$LOCAL_PATH"
@@ -255,29 +255,29 @@ runs:
             exit 1
           fi
           resolved_base=$(normalize_remote_path "$releases_base")
-          echo "Resolved releases_dir: ${resolved_base}"
+          echo "🧭 Resolved releases_dir: ${resolved_base}"
           remote_dir="${resolved_base}/${release_id}_${ts}"
-          echo "Creating remote release directory: ${remote_dir}"
+          echo "📁 Creating remote release directory: ${remote_dir}"
           ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${remote_dir}'"
 
           if [ "$USE_ARCHIVE" = "true" ]; then
             archive_file=$(mktemp -u)
             archive_name="release_${release_id}_${ts}.tar.gz"
             archive_file="${archive_file}_${archive_name}"
-            echo "Creating archive: ${archive_file}"
+            echo "🗜️  Creating archive: ${archive_file}"
             tar -czf "$archive_file" "${tar_excludes[@]}" -C "$source_path" .
-            echo "Uploading archive to ${remote_dir}"
+            echo "⬆️  Uploading archive to ${remote_dir}"
             scp "${scp_opts[@]}" "$archive_file" "${SSH_USER}@${O2SWITCH_HOST}:${remote_dir}/${archive_name}"
-            echo "Verifying archive on remote"
+            echo "🔎 Verifying archive on remote"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "ls -l '${remote_dir}/${archive_name}'"
-            echo "Extracting archive on remote"
+            echo "📂 Extracting archive on remote"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "tar -xvzf '${remote_dir}/${archive_name}' -C '${remote_dir}'"
-            echo "Removing archive on remote"
+            echo "🧹 Removing archive on remote"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "rm -f '${remote_dir}/${archive_name}'"
             rm -f "$archive_file"
           else
             export RSYNC_RSH="ssh ${ssh_opts[*]}"
-            echo "Running rsync to ${remote_dir}"
+            echo "🔁 Running rsync to ${remote_dir}"
             rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${source_path}" "${SSH_USER}@${O2SWITCH_HOST}:${remote_dir}"
           fi
 
@@ -287,14 +287,14 @@ runs:
             exit 1
           fi
           resolved_link=$(normalize_remote_path "$current_link")
-          echo "Resolved current_link: ${resolved_link}"
-          echo "Updating current symlink: ${resolved_link} -> ${remote_dir}"
+          echo "🧭 Resolved current_link: ${resolved_link}"
+          echo "🔗 Updating current symlink: ${resolved_link} -> ${remote_dir}"
           ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "ln -sfn '${remote_dir}' '${resolved_link}'"
-          echo "Removing old releases (keep ${keep_releases})"
+          echo "🧹 Removing old releases (keep ${keep_releases})"
           ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "cd '${resolved_base}' && ls -dt */ | tail -n +$((keep_releases + 1)) | xargs -r rm -rf --"
         else
           resolved_remote_path=$(normalize_remote_path "$REMOTE_PATH")
-          echo "Resolved remote_path: ${resolved_remote_path}"
+          echo "🧭 Resolved remote_path: ${resolved_remote_path}"
           if [ -z "$resolved_remote_path" ]; then
             echo "remote_path is required when use_releases=false" >&2
             exit 1
@@ -303,26 +303,26 @@ runs:
             archive_file=$(mktemp -u)
             archive_name="release_${GITHUB_SHA:-manual}_$(date +%s%3N).tar.gz"
             archive_file="${archive_file}_${archive_name}"
-            echo "Creating archive: ${archive_file}"
+            echo "🗜️  Creating archive: ${archive_file}"
             tar -czf "$archive_file" "${tar_excludes[@]}" -C "$source_path" .
-            echo "Uploading archive to ${resolved_remote_path}"
+            echo "⬆️  Uploading archive to ${resolved_remote_path}"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${resolved_remote_path}'"
             scp "${scp_opts[@]}" "$archive_file" "${SSH_USER}@${O2SWITCH_HOST}:${resolved_remote_path}/${archive_name}"
-            echo "Verifying archive on remote"
+            echo "🔎 Verifying archive on remote"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "ls -l '${resolved_remote_path}/${archive_name}'"
-            echo "Extracting archive on remote"
+            echo "📂 Extracting archive on remote"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "tar -xvzf '${resolved_remote_path}/${archive_name}' -C '${resolved_remote_path}'"
-            echo "Removing archive on remote"
+            echo "🧹 Removing archive on remote"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "rm -f '${resolved_remote_path}/${archive_name}'"
             rm -f "$archive_file"
           else
             export RSYNC_RSH="ssh ${ssh_opts[*]}"
-            echo "Running rsync from ${source_path} to ${SSH_USER}@${O2SWITCH_HOST}:${resolved_remote_path}"
+            echo "🔁 Running rsync from ${source_path} to ${SSH_USER}@${O2SWITCH_HOST}:${resolved_remote_path}"
             rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${source_path}" "${SSH_USER}@${O2SWITCH_HOST}:${resolved_remote_path}"
           fi
         fi
-        echo "Deploy completed"
-        echo "==== Rsync deploy (end) ===="
+        echo "✅ Deploy completed"
+        echo "✅ ==== Deploy (end) ===="
 
     - name: Cleanup whitelist
       if: ${{ always() }}
@@ -334,15 +334,15 @@ runs:
         PUBLIC_IP: ${{ steps.public_ip.outputs.public_ip }}
       run: |
         set -euo pipefail
-        echo "==== Cleanup whitelist (start) ===="
+        echo "🧼 ==== Cleanup whitelist (start) ===="
         auth_header="Authorization: cpanel ${O2SWITCH_USERNAME}:${O2SWITCH_API_TOKEN}"
         base_url="https://${O2SWITCH_HOST}:2083/execute/SshWhitelist"
         if [ -n "${PUBLIC_IP:-}" ]; then
-          echo "Cleaning up whitelist for ${PUBLIC_IP}"
+          echo "🧽 Cleaning up whitelist for ${PUBLIC_IP}"
           curl -sS -f -H "$auth_header" "${base_url}/remove?address=${PUBLIC_IP}&direction=in&port=22" >/dev/null 2>&1 || true
           curl -sS -f -H "$auth_header" "${base_url}/remove?address=${PUBLIC_IP}&direction=out&port=22" >/dev/null 2>&1 || true
-          echo "Cleanup complete"
+          echo "✅ Cleanup complete"
         else
-          echo "No public IP available for cleanup"
+          echo "⚠️  No public IP available for cleanup"
         fi
-        echo "==== Cleanup whitelist (end) ===="
+        echo "✅ ==== Cleanup whitelist (end) ===="
