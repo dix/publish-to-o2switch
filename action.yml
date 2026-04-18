@@ -1,0 +1,156 @@
+name: "publish-to-o2switch"
+description: "Whitelist runner IP, rsync deploy, then cleanup."
+branding:
+  icon: "upload-cloud"
+  color: "blue"
+
+inputs:
+  o2switch_host:
+    description: "O2Switch host (e.g. srv123.o2switch.net)"
+    required: true
+  o2switch_username:
+    description: "O2Switch/cPanel username"
+    required: true
+  o2switch_api_token:
+    description: "O2Switch cPanel API token"
+    required: true
+  ssh_user:
+    description: "SSH user for rsync"
+    required: true
+  ssh_private_key:
+    description: "SSH private key used for rsync"
+    required: true
+  remote_path:
+    description: "Remote path to deploy to"
+    required: true
+  local_path:
+    description: "Local path to deploy from"
+    required: false
+    default: "./"
+  ssh_port:
+    description: "SSH port"
+    required: false
+    default: "22"
+  rsync_args:
+    description: "Arguments passed to rsync"
+    required: false
+    default: "-rlgoDzvc -i --delete-after"
+  exclude:
+    description: "Comma-separated rsync excludes"
+    required: false
+    default: ""
+
+outputs:
+  public_ip:
+    description: "Public IP of the GitHub runner"
+    value: ${{ steps.public_ip.outputs.public_ip }}
+
+runs:
+  using: "composite"
+  steps:
+    - name: Get runner public IP
+      id: public_ip
+      shell: bash
+      run: |
+        set -euo pipefail
+        ip=$(curl -s checkip.amazonaws.com)
+        if [ -z "$ip" ]; then
+          echo "Failed to fetch public IP" >&2
+          exit 1
+        fi
+        echo "public_ip=$ip" >> "$GITHUB_OUTPUT"
+
+    - name: Display plan
+      shell: bash
+      env:
+        O2SWITCH_HOST: ${{ inputs.o2switch_host }}
+        O2SWITCH_USERNAME: ${{ inputs.o2switch_username }}
+        SSH_USER: ${{ inputs.ssh_user }}
+        SSH_PORT: ${{ inputs.ssh_port }}
+        LOCAL_PATH: ${{ inputs.local_path }}
+        REMOTE_PATH: ${{ inputs.remote_path }}
+        RSYNC_ARGS: ${{ inputs.rsync_args }}
+        EXCLUDE_LIST: ${{ inputs.exclude }}
+        PUBLIC_IP: ${{ steps.public_ip.outputs.public_ip }}
+      run: |
+        set -euo pipefail
+        echo "Plan:"
+        echo "- public_ip: ${PUBLIC_IP}"
+        echo "- o2switch_host: ${O2SWITCH_HOST}"
+        echo "- o2switch_username: ${O2SWITCH_USERNAME}"
+        echo "- ssh_user: ${SSH_USER}"
+        echo "- ssh_port: ${SSH_PORT}"
+        echo "- local_path: ${LOCAL_PATH}"
+        echo "- remote_path: ${REMOTE_PATH}"
+        echo "- rsync_args: ${RSYNC_ARGS}"
+        if [ -n "${EXCLUDE_LIST}" ]; then
+          echo "- exclude: ${EXCLUDE_LIST}"
+        else
+          echo "- exclude: (none)"
+        fi
+
+    - name: Whitelist IP
+      shell: bash
+      env:
+        O2SWITCH_HOST: ${{ inputs.o2switch_host }}
+        O2SWITCH_USERNAME: ${{ inputs.o2switch_username }}
+        O2SWITCH_API_TOKEN: ${{ inputs.o2switch_api_token }}
+        PUBLIC_IP: ${{ steps.public_ip.outputs.public_ip }}
+      run: |
+        set -euo pipefail
+
+        auth_header="Authorization: cpanel ${O2SWITCH_USERNAME}:${O2SWITCH_API_TOKEN}"
+        base_url="https://${O2SWITCH_HOST}:2083/execute/SshWhitelist"
+
+        echo "Whitelisting ${PUBLIC_IP}"
+        curl -sS -H "$auth_header" "${base_url}/add?address=${PUBLIC_IP}&port=22" >/dev/null
+
+    - name: Rsync deploy
+      shell: bash
+      env:
+        O2SWITCH_HOST: ${{ inputs.o2switch_host }}
+        SSH_USER: ${{ inputs.ssh_user }}
+        SSH_PRIVATE_KEY: ${{ inputs.ssh_private_key }}
+        SSH_PORT: ${{ inputs.ssh_port }}
+        LOCAL_PATH: ${{ inputs.local_path }}
+        REMOTE_PATH: ${{ inputs.remote_path }}
+        RSYNC_ARGS: ${{ inputs.rsync_args }}
+        EXCLUDE_LIST: ${{ inputs.exclude }}
+      run: |
+        set -euo pipefail
+
+        key_file=$(mktemp)
+        printf "%s\n" "$SSH_PRIVATE_KEY" > "$key_file"
+        chmod 600 "$key_file"
+
+        exclude_args=()
+        if [ -n "$EXCLUDE_LIST" ]; then
+          IFS=',' read -r -a exclude_items <<< "$EXCLUDE_LIST"
+          for item in "${exclude_items[@]}"; do
+            trimmed="${item#"${item%%[![:space:]]*}"}"
+            trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+            if [ -n "$trimmed" ]; then
+              exclude_args+=("--exclude=$trimmed")
+            fi
+          done
+        fi
+
+        export RSYNC_RSH="ssh -p ${SSH_PORT} -i ${key_file} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${LOCAL_PATH}" "${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
+
+    - name: Cleanup whitelist
+      if: ${{ always() }}
+      shell: bash
+      env:
+        O2SWITCH_HOST: ${{ inputs.o2switch_host }}
+        O2SWITCH_USERNAME: ${{ inputs.o2switch_username }}
+        O2SWITCH_API_TOKEN: ${{ inputs.o2switch_api_token }}
+        PUBLIC_IP: ${{ steps.public_ip.outputs.public_ip }}
+      run: |
+        set -euo pipefail
+        auth_header="Authorization: cpanel ${O2SWITCH_USERNAME}:${O2SWITCH_API_TOKEN}"
+        base_url="https://${O2SWITCH_HOST}:2083/execute/SshWhitelist"
+        if [ -n "${PUBLIC_IP:-}" ]; then
+          curl -sS -H "$auth_header" "${base_url}/remove?address=${PUBLIC_IP}&direction=in&port=22" >/dev/null 2>&1 || true
+          curl -sS -H "$auth_header" "${base_url}/remove?address=${PUBLIC_IP}&direction=out&port=22" >/dev/null 2>&1 || true
+        fi
