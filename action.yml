@@ -40,6 +40,26 @@ inputs:
     description: "Comma-separated rsync excludes"
     required: false
     default: ""
+  use_archive:
+    description: "Use tar.gz archive instead of rsync"
+    required: false
+    default: "false"
+  use_releases:
+    description: "Deploy to a release directory and update a symlink"
+    required: false
+    default: "false"
+  releases_dir:
+    description: "Remote releases directory (required if use_releases=true)"
+    required: false
+    default: ""
+  current_link:
+    description: "Remote symlink path for the current release (required if use_releases=true)"
+    required: false
+    default: ""
+  keep_releases:
+    description: "Number of releases to keep (use_releases only)"
+    required: false
+    default: "3"
 
 outputs:
   public_ip:
@@ -74,6 +94,11 @@ runs:
         REMOTE_PATH: ${{ inputs.remote_path }}
         RSYNC_ARGS: ${{ inputs.rsync_args }}
         EXCLUDE_LIST: ${{ inputs.exclude }}
+        USE_ARCHIVE: ${{ inputs.use_archive }}
+        USE_RELEASES: ${{ inputs.use_releases }}
+        RELEASES_DIR: ${{ inputs.releases_dir }}
+        CURRENT_LINK: ${{ inputs.current_link }}
+        KEEP_RELEASES: ${{ inputs.keep_releases }}
         PUBLIC_IP: ${{ steps.public_ip.outputs.public_ip }}
       run: |
         set -euo pipefail
@@ -91,6 +116,13 @@ runs:
           echo "- exclude: ${EXCLUDE_LIST}"
         else
           echo "- exclude: (none)"
+        fi
+        echo "- use_archive: ${USE_ARCHIVE}"
+        echo "- use_releases: ${USE_RELEASES}"
+        if [ "${USE_RELEASES}" = "true" ]; then
+          echo "- releases_dir: ${RELEASES_DIR}"
+          echo "- current_link: ${CURRENT_LINK}"
+          echo "- keep_releases: ${KEEP_RELEASES}"
         fi
         echo "==== Display plan (end) ===="
 
@@ -125,6 +157,11 @@ runs:
         REMOTE_PATH: ${{ inputs.remote_path }}
         RSYNC_ARGS: ${{ inputs.rsync_args }}
         EXCLUDE_LIST: ${{ inputs.exclude }}
+        USE_ARCHIVE: ${{ inputs.use_archive }}
+        USE_RELEASES: ${{ inputs.use_releases }}
+        RELEASES_DIR: ${{ inputs.releases_dir }}
+        CURRENT_LINK: ${{ inputs.current_link }}
+        KEEP_RELEASES: ${{ inputs.keep_releases }}
       run: |
         set -euo pipefail
         echo "==== Rsync deploy (start) ===="
@@ -135,7 +172,10 @@ runs:
         printf "%s\n" "$SSH_PRIVATE_KEY" > "$key_file"
         chmod 600 "$key_file"
 
+        ssh_opts=("-p" "${SSH_PORT}" "-i" "${key_file}" "-o" "StrictHostKeyChecking=no" "-o" "UserKnownHostsFile=/dev/null")
+
         exclude_args=()
+        tar_excludes=()
         if [ -n "$EXCLUDE_LIST" ]; then
           IFS=',' read -r -a exclude_items <<< "$EXCLUDE_LIST"
           for item in "${exclude_items[@]}"; do
@@ -143,6 +183,7 @@ runs:
             trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
             if [ -n "$trimmed" ]; then
               exclude_args+=("--exclude=$trimmed")
+              tar_excludes+=("--exclude=$trimmed")
             fi
           done
         fi
@@ -153,14 +194,75 @@ runs:
           echo "Rsync excludes: (none)"
         fi
 
-        export RSYNC_RSH="ssh -p ${SSH_PORT} -i ${key_file} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
         source_path="$LOCAL_PATH"
         if [ "${source_path%/}" = "$source_path" ]; then
           source_path="${source_path}/"
         fi
-        echo "Running rsync from ${source_path} to ${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
-        rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${source_path}" "${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
-        echo "Rsync completed"
+        if [ "$USE_RELEASES" = "true" ]; then
+          if [ -z "$RELEASES_DIR" ] || [ -z "$CURRENT_LINK" ]; then
+            echo "releases_dir and current_link are required when use_releases=true" >&2
+            exit 1
+          fi
+          keep_releases="$KEEP_RELEASES"
+          if ! echo "$keep_releases" | grep -Eq '^[0-9]+$'; then
+            echo "keep_releases must be a number" >&2
+            exit 1
+          fi
+          if [ "$keep_releases" -lt 1 ]; then
+            echo "keep_releases must be >= 1" >&2
+            exit 1
+          fi
+          release_id="${GITHUB_SHA:-manual}"
+          ts=$(date +%s%3N)
+          remote_dir="${RELEASES_DIR}/${release_id}_${ts}"
+          echo "Creating remote release directory: ${remote_dir}"
+          ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${remote_dir}'"
+
+          if [ "$USE_ARCHIVE" = "true" ]; then
+            archive_file=$(mktemp -u)
+            archive_name="release_${release_id}_${ts}.tar.gz"
+            archive_file="${archive_file}_${archive_name}"
+            echo "Creating archive: ${archive_file}"
+            tar -czf "$archive_file" "${tar_excludes[@]}" -C "$source_path" .
+            echo "Uploading archive to ${remote_dir}"
+            scp "${ssh_opts[@]}" "$archive_file" "${SSH_USER}@${O2SWITCH_HOST}:${remote_dir}/"
+            echo "Extracting archive on remote"
+            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "tar -xzf '${remote_dir}/${archive_name}' -C '${remote_dir}'"
+            echo "Removing archive on remote"
+            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "rm -f '${remote_dir}/${archive_name}'"
+            rm -f "$archive_file"
+          else
+            export RSYNC_RSH="ssh ${ssh_opts[*]}"
+            echo "Running rsync to ${remote_dir}"
+            rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${source_path}" "${SSH_USER}@${O2SWITCH_HOST}:${remote_dir}"
+          fi
+
+          echo "Updating current symlink: ${CURRENT_LINK} -> ${remote_dir}"
+          ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "ln -sfn '${remote_dir}' '${CURRENT_LINK}'"
+          echo "Removing old releases (keep ${keep_releases})"
+          ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "cd '${RELEASES_DIR}' && ls -dt */ | tail -n +$((keep_releases + 1)) | xargs -r rm -rf --"
+        else
+          if [ "$USE_ARCHIVE" = "true" ]; then
+            archive_file=$(mktemp -u)
+            archive_name="release_${GITHUB_SHA:-manual}_$(date +%s%3N).tar.gz"
+            archive_file="${archive_file}_${archive_name}"
+            echo "Creating archive: ${archive_file}"
+            tar -czf "$archive_file" "${tar_excludes[@]}" -C "$source_path" .
+            echo "Uploading archive to ${REMOTE_PATH}"
+            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${REMOTE_PATH}'"
+            scp "${ssh_opts[@]}" "$archive_file" "${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}/"
+            echo "Extracting archive on remote"
+            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "tar -xzf '${REMOTE_PATH}/${archive_name}' -C '${REMOTE_PATH}'"
+            echo "Removing archive on remote"
+            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "rm -f '${REMOTE_PATH}/${archive_name}'"
+            rm -f "$archive_file"
+          else
+            export RSYNC_RSH="ssh ${ssh_opts[*]}"
+            echo "Running rsync from ${source_path} to ${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
+            rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${source_path}" "${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
+          fi
+        fi
+        echo "Deploy completed"
         echo "==== Rsync deploy (end) ===="
 
     - name: Cleanup whitelist
