@@ -185,19 +185,20 @@ runs:
             echo ""
             return
           fi
-          if [ "${trimmed#/}" != "$trimmed" ]; then
-            echo "$trimmed"
-            return
-          fi
-          if [ "$trimmed" = "~" ]; then
-            echo "/home/${O2SWITCH_USERNAME}"
-            return
-          fi
-          if [ "${trimmed#~}" != "$trimmed" ]; then
-            echo "/home/${O2SWITCH_USERNAME}${trimmed#~}"
-            return
-          fi
-          echo "/home/${O2SWITCH_USERNAME}/${trimmed}"
+          case "$trimmed" in
+            /*)
+              echo "$trimmed"
+              ;;
+            ~)
+              echo "/home/${O2SWITCH_USERNAME}"
+              ;;
+            ~/*)
+              echo "/home/${O2SWITCH_USERNAME}${trimmed#~}"
+              ;;
+            *)
+              echo "/home/${O2SWITCH_USERNAME}/${trimmed}"
+              ;;
+          esac
         }
 
         exclude_args=()
