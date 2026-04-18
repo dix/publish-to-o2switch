@@ -217,7 +217,11 @@ runs:
           ts=$(date +%s%3N)
           remote_dir="${RELEASES_DIR}/${release_id}_${ts}"
           echo "Creating remote release directory: ${remote_dir}"
-          ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${remote_dir}'"
+          if [ "${remote_dir#~}" != "$remote_dir" ]; then
+            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p ${remote_dir}"
+          else
+            ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${remote_dir}'"
+          fi
 
           if [ "$USE_ARCHIVE" = "true" ]; then
             archive_file=$(mktemp -u)
