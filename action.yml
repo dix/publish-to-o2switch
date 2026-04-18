@@ -102,8 +102,10 @@ runs:
         auth_header="Authorization: cpanel ${O2SWITCH_USERNAME}:${O2SWITCH_API_TOKEN}"
         base_url="https://${O2SWITCH_HOST}:2083/execute/SshWhitelist"
 
+        echo "Whitelist endpoint: ${base_url}"
         echo "Whitelisting ${PUBLIC_IP}"
-        curl -sS -H "$auth_header" "${base_url}/add?address=${PUBLIC_IP}&port=22" >/dev/null
+        curl -sS -f -H "$auth_header" "${base_url}/add?address=${PUBLIC_IP}&port=22" >/dev/null
+        echo "Whitelist add request succeeded"
 
     - name: Rsync deploy
       shell: bash
@@ -118,6 +120,8 @@ runs:
         EXCLUDE_LIST: ${{ inputs.exclude }}
       run: |
         set -euo pipefail
+
+        echo "Preparing SSH key and rsync"
 
         key_file=$(mktemp)
         printf "%s\n" "$SSH_PRIVATE_KEY" > "$key_file"
@@ -135,8 +139,16 @@ runs:
           done
         fi
 
+        if [ ${#exclude_args[@]} -gt 0 ]; then
+          echo "Rsync excludes: ${exclude_args[*]}"
+        else
+          echo "Rsync excludes: (none)"
+        fi
+
         export RSYNC_RSH="ssh -p ${SSH_PORT} -i ${key_file} -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
+        echo "Running rsync from ${LOCAL_PATH} to ${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
         rsync ${RSYNC_ARGS} "${exclude_args[@]}" "${LOCAL_PATH}" "${SSH_USER}@${O2SWITCH_HOST}:${REMOTE_PATH}"
+        echo "Rsync completed"
 
     - name: Cleanup whitelist
       if: ${{ always() }}
@@ -151,6 +163,10 @@ runs:
         auth_header="Authorization: cpanel ${O2SWITCH_USERNAME}:${O2SWITCH_API_TOKEN}"
         base_url="https://${O2SWITCH_HOST}:2083/execute/SshWhitelist"
         if [ -n "${PUBLIC_IP:-}" ]; then
-          curl -sS -H "$auth_header" "${base_url}/remove?address=${PUBLIC_IP}&direction=in&port=22" >/dev/null 2>&1 || true
-          curl -sS -H "$auth_header" "${base_url}/remove?address=${PUBLIC_IP}&direction=out&port=22" >/dev/null 2>&1 || true
+          echo "Cleaning up whitelist for ${PUBLIC_IP}"
+          curl -sS -f -H "$auth_header" "${base_url}/remove?address=${PUBLIC_IP}&direction=in&port=22" >/dev/null 2>&1 || true
+          curl -sS -f -H "$auth_header" "${base_url}/remove?address=${PUBLIC_IP}&direction=out&port=22" >/dev/null 2>&1 || true
+          echo "Cleanup complete"
+        else
+          echo "No public IP available for cleanup"
         fi
