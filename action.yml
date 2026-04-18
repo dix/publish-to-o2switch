@@ -178,19 +178,26 @@ runs:
 
         normalize_remote_path() {
           local input_path="$1"
-          if [ -z "$input_path" ]; then
+          local trimmed
+          trimmed="${input_path#"${input_path%%[![:space:]]*}"}"
+          trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
+          if [ -z "$trimmed" ]; then
             echo ""
             return
           fi
-          if [ "${input_path#/}" != "$input_path" ]; then
-            echo "$input_path"
+          if [ "${trimmed#/}" != "$trimmed" ]; then
+            echo "$trimmed"
             return
           fi
-          if [ "${input_path#~}" != "$input_path" ]; then
-            echo "/home/${O2SWITCH_USERNAME}${input_path#~}"
+          if [ "$trimmed" = "~" ]; then
+            echo "/home/${O2SWITCH_USERNAME}"
             return
           fi
-          echo "/home/${O2SWITCH_USERNAME}/${input_path}"
+          if [ "${trimmed#~}" != "$trimmed" ]; then
+            echo "/home/${O2SWITCH_USERNAME}${trimmed#~}"
+            return
+          fi
+          echo "/home/${O2SWITCH_USERNAME}/${trimmed}"
         }
 
         exclude_args=()
