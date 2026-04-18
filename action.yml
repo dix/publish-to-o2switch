@@ -247,6 +247,7 @@ runs:
             exit 1
           fi
           resolved_base=$(normalize_remote_path "$releases_base")
+          echo "Resolved releases_dir: ${resolved_base}"
           remote_dir="${resolved_base}/${release_id}_${ts}"
           echo "Creating remote release directory: ${remote_dir}"
           ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${remote_dir}'"
@@ -276,12 +277,14 @@ runs:
             exit 1
           fi
           resolved_link=$(normalize_remote_path "$current_link")
+          echo "Resolved current_link: ${resolved_link}"
           echo "Updating current symlink: ${resolved_link} -> ${remote_dir}"
           ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "ln -sfn '${remote_dir}' '${resolved_link}'"
           echo "Removing old releases (keep ${keep_releases})"
           ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "cd '${resolved_base}' && ls -dt */ | tail -n +$((keep_releases + 1)) | xargs -r rm -rf --"
         else
           resolved_remote_path=$(normalize_remote_path "$REMOTE_PATH")
+          echo "Resolved remote_path: ${resolved_remote_path}"
           if [ -z "$resolved_remote_path" ]; then
             echo "remote_path is required when use_releases=false" >&2
             exit 1
