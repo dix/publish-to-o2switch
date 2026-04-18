@@ -175,6 +175,7 @@ runs:
         chmod 600 "$key_file"
 
         ssh_opts=("-p" "${SSH_PORT}" "-i" "${key_file}" "-o" "StrictHostKeyChecking=no" "-o" "UserKnownHostsFile=/dev/null")
+        scp_opts=("-P" "${SSH_PORT}" "-i" "${key_file}" "-o" "StrictHostKeyChecking=no" "-o" "UserKnownHostsFile=/dev/null")
 
         normalize_remote_path() {
           local input_path="$1"
@@ -266,7 +267,7 @@ runs:
             echo "Creating archive: ${archive_file}"
             tar -czf "$archive_file" "${tar_excludes[@]}" -C "$source_path" .
             echo "Uploading archive to ${remote_dir}"
-            scp "${ssh_opts[@]}" "$archive_file" "${SSH_USER}@${O2SWITCH_HOST}:${remote_dir}/"
+            scp "${scp_opts[@]}" "$archive_file" "${SSH_USER}@${O2SWITCH_HOST}:${remote_dir}/"
             echo "Extracting archive on remote"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "tar -xzf '${remote_dir}/${archive_name}' -C '${remote_dir}'"
             echo "Removing archive on remote"
@@ -304,7 +305,7 @@ runs:
             tar -czf "$archive_file" "${tar_excludes[@]}" -C "$source_path" .
             echo "Uploading archive to ${resolved_remote_path}"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "mkdir -p '${resolved_remote_path}'"
-            scp "${ssh_opts[@]}" "$archive_file" "${SSH_USER}@${O2SWITCH_HOST}:${resolved_remote_path}/"
+            scp "${scp_opts[@]}" "$archive_file" "${SSH_USER}@${O2SWITCH_HOST}:${resolved_remote_path}/"
             echo "Extracting archive on remote"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "tar -xzf '${resolved_remote_path}/${archive_name}' -C '${resolved_remote_path}'"
             echo "Removing archive on remote"
