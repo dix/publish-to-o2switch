@@ -179,6 +179,7 @@ runs:
         normalize_remote_path() {
           local input_path="$1"
           local trimmed
+          local resolved
           trimmed="${input_path#"${input_path%%[![:space:]]*}"}"
           trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"
           if [ -z "$trimmed" ]; then
@@ -187,18 +188,24 @@ runs:
           fi
           case "$trimmed" in
             /*)
-              echo "$trimmed"
+              resolved="$trimmed"
               ;;
             ~)
-              echo "/home/${O2SWITCH_USERNAME}"
+              resolved="/home/${O2SWITCH_USERNAME}"
               ;;
             ~/*)
-              echo "/home/${O2SWITCH_USERNAME}${trimmed#~}"
+              resolved="/home/${O2SWITCH_USERNAME}${trimmed#~}"
               ;;
             *)
-              echo "/home/${O2SWITCH_USERNAME}/${trimmed}"
+              resolved="/home/${O2SWITCH_USERNAME}/${trimmed}"
               ;;
           esac
+
+          if [ "${resolved#"/home/${O2SWITCH_USERNAME}/~"}" != "$resolved" ]; then
+            resolved="/home/${O2SWITCH_USERNAME}${resolved#"/home/${O2SWITCH_USERNAME}/~"}"
+          fi
+
+          echo "$resolved"
         }
 
         exclude_args=()
