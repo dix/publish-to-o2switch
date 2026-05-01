@@ -1,0 +1,25 @@
+name: Build and Deploy
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build
+        run: npm ci && npm run build
+
+      - name: Publish to O2Switch
+        uses: dix/publish-to-o2switch@v1
+        with:
+          o2switch_host: ${{ secrets.O2SWITCH_HOST }}
+          o2switch_username: ${{ vars.O2SWITCH_USER }}
+          o2switch_api_token: ${{ secrets.O2SWITCH_API_TOKEN }}
+          ssh_private_key: ${{ secrets.O2SWITCH_SSH_PRIVATE_KEY }}
+          remote_path: ${{ secrets.O2SWITCH_REMOTE_PATH }}
+          local_path: ./
+          exclude: /node_modules/,/dist/

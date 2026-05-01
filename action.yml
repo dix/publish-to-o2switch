@@ -148,9 +148,16 @@ runs:
         base_url="https://${O2SWITCH_HOST}:2083/execute/SshWhitelist"
 
         echo "🔗 Whitelist endpoint: ${base_url}"
-        echo "➕ Whitelisting ${PUBLIC_IP}"
-        curl -sS -f -H "$auth_header" "${base_url}/add?address=${PUBLIC_IP}&port=22" >/dev/null
-        echo "✅ Whitelist add request succeeded"
+        echo "🔎 Checking existing whitelist entries"
+        whitelist_payload=$(curl -sS -f -H "$auth_header" "${base_url}/list")
+        normalized_payload=$(printf '%s' "$whitelist_payload" | tr -d '\n')
+        if printf '%s' "$normalized_payload" | grep -q "\"address\":\"${PUBLIC_IP}\"[^}]*\"port\":22"; then
+          echo "✅ ${PUBLIC_IP} is already whitelisted on port 22"
+        else
+          echo "➕ Whitelisting ${PUBLIC_IP}"
+          curl -sS -f -H "$auth_header" "${base_url}/add?address=${PUBLIC_IP}&port=22" >/dev/null
+          echo "✅ Whitelist add request succeeded"
+        fi
         echo "✅ ==== Whitelist IP (end) ===="
 
     - name: Rsync deploy
