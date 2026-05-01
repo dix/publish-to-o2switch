@@ -46,7 +46,7 @@ We need to create the required secrets in the GitHub repository.
 - On cPanel, retrieve O2Switch host related to subscription by going to Technical Space and extract the DNS from the URL
   that should looks like `https://xyz.o2switch.net:2083/`; in this case host is `xyz.o2switch.net`. Then create a
   Repository Secret called `O2SWITCH_HOST` with this value
-- On cPanel, retrieve 02Switch username at the top right under `General Information -> Current User` and create a
+- On cPanel, retrieve O2Switch username at the top right under `General Information -> Current User` and create a
   Repository Secret called `O2SWITCH_USER` with this value
 - On cPanel, get an API Token under `Manage API Tokens` and create a Repository Secret called `O2SWITCH_API_TOKEN` with
   this value
