@@ -184,6 +184,17 @@ runs:
         echo "🔑 Preparing SSH key and deploy"
 
         key_file=$(mktemp)
+        temp_files=()
+        temp_files+=("$key_file")
+        cleanup_temp_files() {
+          echo "🧹 Cleaning temporary files"
+          for file in "${temp_files[@]}"; do
+            rm -f "$file"
+          done
+        }
+        # Ensure temp SSH key and archive cleanup on any exit path.
+        echo "🧼 Setting up temporary file cleanup"
+        trap cleanup_temp_files EXIT
         printf "%s\n" "$SSH_PRIVATE_KEY" > "$key_file"
         chmod 600 "$key_file"
 
@@ -277,6 +288,7 @@ runs:
             archive_file=$(mktemp -u)
             archive_name="release_${release_id}_${ts}.tar.gz"
             archive_file="${archive_file}_${archive_name}"
+            temp_files+=("$archive_file")
             echo "🗜️  Creating archive: ${archive_file}"
             tar -czf "$archive_file" "${tar_excludes[@]}" -C "$source_path" .
             echo "⬆️  Uploading archive to ${remote_dir}"
@@ -287,7 +299,6 @@ runs:
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "tar -xvzf '${remote_dir}/${archive_name}' -C '${remote_dir}'"
             echo "🧹 Removing archive on remote"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "rm -f '${remote_dir}/${archive_name}'"
-            rm -f "$archive_file"
           else
             export RSYNC_RSH="ssh ${ssh_opts[*]}"
             echo "🔁 Running rsync to ${remote_dir}"
@@ -316,6 +327,7 @@ runs:
             archive_file=$(mktemp -u)
             archive_name="release_${GITHUB_SHA:-manual}_$(date +%s%3N).tar.gz"
             archive_file="${archive_file}_${archive_name}"
+            temp_files+=("$archive_file")
             echo "🗜️  Creating archive: ${archive_file}"
             tar -czf "$archive_file" "${tar_excludes[@]}" -C "$source_path" .
             echo "⬆️  Uploading archive to ${resolved_remote_path}"
@@ -327,7 +339,6 @@ runs:
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "tar -xvzf '${resolved_remote_path}/${archive_name}' -C '${resolved_remote_path}'"
             echo "🧹 Removing archive on remote"
             ssh "${ssh_opts[@]}" "${SSH_USER}@${O2SWITCH_HOST}" "rm -f '${resolved_remote_path}/${archive_name}'"
-            rm -f "$archive_file"
           else
             export RSYNC_RSH="ssh ${ssh_opts[*]}"
             echo "🔁 Running rsync from ${source_path} to ${SSH_USER}@${O2SWITCH_HOST}:${resolved_remote_path}"
