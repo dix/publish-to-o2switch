@@ -60,6 +60,10 @@ inputs:
     description: "Number of releases to keep (use_releases only)"
     required: false
     default: "3"
+  skip_cleanup_whitelist:
+    description: "Skip cleanup whitelist step"
+    required: false
+    default: "false"
 
 outputs:
   public_ip:
@@ -100,6 +104,7 @@ runs:
         RELEASES_DIR: ${{ inputs.releases_dir }}
         CURRENT_LINK: ${{ inputs.current_link }}
         KEEP_RELEASES: ${{ inputs.keep_releases }}
+        SKIP_CLEANUP_WHITELIST: ${{ inputs.skip_cleanup_whitelist }}
         PUBLIC_IP: ${{ steps.public_ip.outputs.public_ip }}
       run: |
         set -euo pipefail
@@ -125,6 +130,7 @@ runs:
           echo "- current_link: ${CURRENT_LINK}"
           echo "- keep_releases: ${KEEP_RELEASES}"
         fi
+        echo "- skip_cleanup_whitelist: ${SKIP_CLEANUP_WHITELIST}"
         echo "✅ ==== Display plan (end) ===="
 
     - name: Whitelist IP
@@ -325,7 +331,7 @@ runs:
         echo "✅ ==== Deploy (end) ===="
 
     - name: Cleanup whitelist
-      if: ${{ always() }}
+      if: ${{ always() && inputs.skip_cleanup_whitelist != 'true' }}
       shell: bash
       env:
         O2SWITCH_HOST: ${{ inputs.o2switch_host }}

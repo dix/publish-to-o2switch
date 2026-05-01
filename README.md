@@ -2,6 +2,8 @@
 
 All-in-one action to publish content to o2switch 🐯, managing IP whitelisting, archiving, releases, exclusions...
 
+Also tested and validated on [Gitea](https://docs.gitea.com/usage/actions/ "Gitea") 🍵.
+
 ## Quickstart example
 
 ```yaml
@@ -105,6 +107,7 @@ Note: it's not clear if this step is doable through the API at the moment, thus 
 | `releases_dir`       | optional (required if `use_releases=true`)       | Remote releases directory (only for `use_releases`)                         |
 | `current_link`       | optional (required if `use_releases=true`)       | Remote symlink path for the current release (only for `use_releases`)       |
 | `keep_releases`      | optional (default `3`)                           | Number of releases to keep (only for `use_releases`)                        |
+| `skip_cleanup_whitelist` | optional (default `false`)                   | Skip the cleanup whitelist step                                              |
 
 ### Modes
 
@@ -147,11 +150,13 @@ for each file, which can take quite some time if the number of files is in the h
 
 ### Whitelisting
 
-By default, SSH access is blocked by o2switch, so we first need to allow the Github runner's public IP through cPanel
+By default, SSH access is blocked by o2switch, so we first need to allow the GitHub runner's random public IP through cPanel
 API.
 
-Since the number of authorized IPs is limited, we **always delete the IP in the end**, even if the deployment failed,
+Since the number of authorized IPs is limited, we always delete the IP in the end, even if the deployment failed,
 avoiding leaving a mess in your account.
+
+For self-hosted runners, particularly for Gitea, use `skip_cleanup_whitelist: true` to skip this step and keep the IP whitelisted.
 
 ### Exclusions
 
