@@ -25,7 +25,7 @@ jobs:
 
       # Publishing with the action
       - name: Publish to o2switch
-        uses: dix/publish-to-o2switch@v1
+        uses: dix/publish-to-o2switch@v1.1
         with:
           o2switch_host: ${{ secrets.O2SWITCH_HOST }}
           o2switch_username: ${{ secrets.O2SWITCH_USER }}
